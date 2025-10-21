@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TIMER MAROMBA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Define a fonte e garante que o corpo ocupe 100% da viewport */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a2e; /* Fundo escuro */
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1rem;
+        }
+
+        /* Estilo forte para os botões do timer */
+        .timer-button {
+            transition: all 0.2s;
+            background-color: #ff4757; /* Vermelho forte */
+            border: 2px solid #ff4757;
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+            font-weight: 700;
+            color: white;
+            padding: 1.5rem 0.5rem;
+        }
+        .timer-button:hover {
+            background-color: #ff6b81;
+            box-shadow: 0 6px 20px rgba(255, 71, 87, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        /* Estilo para o botão principal INICIAR */
+        .start-button {
+            background: linear-gradient(145deg, #4834d4, #686de0); /* Gradiente roxo */
+            box-shadow: 0 6px 20px rgba(72, 52, 212, 0.4);
+            transition: all 0.3s ease;
+        }
+        .start-button:hover {
+            box-shadow: 0 10px 30px rgba(72, 52, 212, 0.6);
+            transform: translateY(-4px);
+        }
+
+        /* Estilo para o contador */
+        .countdown-display {
+            font-size: 5rem; /* Grande para fácil visualização */
+            font-weight: 900;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+        }
+
+        /* Estilo para a frase motivacional */
+        .motivation-phrase {
+            color: #a4b0be; /* Cinza claro */
+            font-style: italic;
+            min-height: 3rem; /* Garante que a tela não trema ao mudar a frase */
+        }
+
+        /* Estilo para botões menores de ação */
+        .action-button-sm {
+            background-color: #4b4b6a; /* Cor de fundo neutra */
+            color: #fff;
+        }
+        .action-button-sm:hover {
+            background-color: #6a6a8c;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="w-full max-w-md mx-auto p-4 flex flex-col items-center">
+    <h1 class="text-4xl font-extrabold mb-8 text-center uppercase tracking-widest text-yellow-400">
+        TIMER MAROMBA
+    </h1>
+
+    <!-- Container de Vistas (Será manipulado pelo JS) -->
+    <div id="screen-container" class="w-full">
+        <!-- Telas serão renderizadas aqui -->
+    </div>
+
+</div>
+
+<script>
+    // Variáveis de estado global do aplicativo
+    const state = {
+        view: 'select_time', // 'select_time', 'ready_to_start', 'countdown_active'
+        selectedTimeSeconds: 0,
+        remainingSeconds: 0,
+        timerInterval: null,
+        phraseIndex: 0,
+        isPaused: false
+    };
+
+    // Frases Motivacionais (10 frases)
+    const motivationalPhrases = [
+        "Respire fundo enquanto descansa. Seu próximo set precisa de você.",
+        "Não desista! A dor de hoje é a força de amanhã.",
+        "O descanso é parte do treino. Use-o com sabedoria.",
+        "Foco total! Você está mais perto do que pensa.",
+        "A lenda não se constrói com pressa, mas com repetição.",
+        "Seu corpo descansa, mas sua mente se prepara.",
+        "A falha é apenas um convite para tentar de novo.",
+        "Mantenha a consistência. O resultado virá.",
+        "Mais uma repetição mental. Está quase na hora de voltar.",
+        "O peso é o mesmo, mas a sua força está crescendo."
+    ];
+
+    const screenContainer = document.getElementById('screen-container');
+
+    // --- UTILS ---
+
+    // Formata segundos totais para MM:SS
+    function formatTime(totalSeconds) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    // Toca um som de notificação (simples bip)
+    function playNotificationSound(frequency = 440, duration = 200) {
+        if (typeof window.AudioContext !== 'undefined') {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, audioContext.currentTime + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + (duration / 1000));
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + (duration / 1000));
+        }
+    }
+
+    // --- HANDLERS ---
+
+    // Função principal para mudar a vista e re-renderizar
+    function navigate(newView) {
+        state.view = newView;
+        render();
+    }
+
+    // Define o tempo e vai para a tela de pronto
+    window.selectTime = (minutes) => {
+        state.selectedTimeSeconds = minutes * 60;
+        navigate('ready_to_start');
+    };
+
+    // Inicia a contagem
+    window.startCountdown = () => {
+        if (state.timerInterval) clearInterval(state.timerInterval);
+        
+        state.remainingSeconds = state.selectedTimeSeconds;
+        state.phraseIndex = Math.floor(Math.random() * motivationalPhrases.length);
+        state.isPaused = false;
+        navigate('countdown_active');
+        
+        // Inicia o intervalo do timer
+        state.timerInterval = setInterval(tick, 1000);
+        
+        // Atualiza o display imediatamente
+        render();
+    };
+
+    // Alterna entre pausar e retomar a contagem
+    window.togglePause = () => {
+        state.isPaused = !state.isPaused;
+        if (state.isPaused) {
+            clearInterval(state.timerInterval);
+            state.timerInterval = null;
+        } else {
+            state.timerInterval = setInterval(tick, 1000);
+        }
+        render();
+    };
+
+    // Parar a contagem e voltar para a tela de pronto
+    window.stopCountdown = () => {
+        if (state.timerInterval) clearInterval(state.timerInterval);
+        state.timerInterval = null;
+        playNotificationSound(100); // Som de parada suave
+        navigate('ready_to_start');
+    };
+
+    // Concluir o treino (para o timer e volta para a seleção de tempo)
+    window.finishWorkout = () => {
+        if (state.timerInterval) clearInterval(state.timerInterval);
+        state.timerInterval = null;
+        alert("Parabéns! Treino Concluído!"); // Usando um alert customizado para feedback simples
+        navigate('select_time');
+    };
+
+    // Lógica do cronômetro (tick a cada segundo)
+    function tick() {
+        if (state.isPaused) return;
+
+        state.remainingSeconds--;
+
+        // Se o tempo acabou
+        if (state.remainingSeconds <= 0) {
+            clearInterval(state.timerInterval);
+            state.timerInterval = null;
+            playNotificationSound(800, 500); // Som de alarme
+            state.remainingSeconds = 0;
+            // Volta para a tela de pronto
+            navigate('ready_to_start');
+            return;
+        }
+
+        // Mudar a frase motivacional a cada 10 segundos
+        if (state.remainingSeconds % 10 === 0) {
+            state.phraseIndex = (state.phraseIndex + 1) % motivationalPhrases.length;
+        }
+
+        render();
+    }
+
+
+    // --- RENDERING ---
+
+    // Renderiza a Tela 1: Seleção de Tempo
+    function renderSelectTime() {
+        const timeOptions = [1, 2, 3, 4, 5, 10];
+        screenContainer.innerHTML = `
+            <h2 class="text-xl font-semibold mb-6 text-center text-gray-300">Selecione o Tempo de Descanso</h2>
+            <div class="grid grid-cols-3 gap-4 w-full">
+                ${timeOptions.map(min => `
+                    <button onclick="selectTime(${min})"
+                        class="timer-button rounded-xl text-2xl"
+                        aria-label="${min} minutos de descanso">
+                        ${min} MIN
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // Renderiza a Tela 2: Pronto para Iniciar
+    function renderReadyToStart() {
+        screenContainer.innerHTML = `
+            <div class="text-center p-6 bg-gray-800 rounded-2xl shadow-2xl w-full">
+                <h2 class="text-2xl font-bold mb-4 text-green-400">Tempo Selecionado</h2>
+                <p class="text-6xl font-extrabold mb-8 text-white">${formatTime(state.selectedTimeSeconds)}</p>
+                
+                <button onclick="startCountdown()"
+                    class="start-button w-full text-3xl p-5 rounded-xl uppercase font-extrabold mb-6">
+                    INICIAR CONTAGEM
+                </button>
+
+                <button onclick="navigate('select_time')"
+                    class="action-button-sm px-4 py-2 text-sm rounded-lg font-medium w-full">
+                    Mudar Tempo
+                </button>
+            </div>
+        `;
+    }
+
+    // Renderiza a Tela 3: Contagem Ativa
+    function renderCountdownActive() {
+        const timeDisplay = formatTime(state.remainingSeconds);
+        const motivationText = motivationalPhrases[state.phraseIndex];
+        const pauseText = state.isPaused ? 'RETOMAR' : 'PAUSAR';
+        const pauseColor = state.isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600';
+
+        screenContainer.innerHTML = `
+            <div class="text-center p-6 bg-gray-900 rounded-2xl shadow-3xl w-full">
+                <p class="motivation-phrase text-lg mb-6 h-12 flex items-center justify-center">
+                    ${motivationText}
+                </p>
+                
+                <p class="countdown-display mb-8 text-red-500">${timeDisplay}</p>
+                
+                <div class="flex space-x-4 mb-6">
+                    <!-- Botão de Parar/Retomar Contagem -->
+                    <button onclick="togglePause()"
+                        class="action-button-sm ${pauseColor} flex-1 text-lg py-3 rounded-xl font-bold transition duration-200">
+                        ${pauseText}
+                    </button>
+                    <!-- Botão de Parar (Zerar e voltar) -->
+                    <button onclick="stopCountdown()"
+                        class="action-button-sm bg-gray-600 hover:bg-gray-700 w-1/4 text-sm py-3 rounded-xl transition duration-200">
+                        Zerar
+                    </button>
+                </div>
+
+                <!-- Botão de Concluir Treino -->
+                <button onclick="finishWorkout()"
+                    class="action-button-sm bg-blue-700 hover:bg-blue-800 w-full text-base py-3 rounded-xl font-semibold mt-4">
+                    CONCLUIR TREINO (RESET)
+                </button>
+            </div>
+        `;
+    }
+
+    // Função principal de renderização que decide qual tela mostrar
+    function render() {
+        if (state.view === 'select_time') {
+            renderSelectTime();
+        } else if (state.view === 'ready_to_start') {
+            renderReadyToStart();
+        } else if (state.view === 'countdown_active') {
+            renderCountdownActive();
+        }
+    }
+
+    // Feedback simples para o usuário, substituindo o alert
+    function alert(message) {
+        const alertBox = document.createElement('div');
+        alertBox.className = 'fixed top-0 left-0 right-0 p-4 text-center bg-green-600 text-white font-bold shadow-lg z-50 transition-transform duration-300 transform translate-y-0';
+        alertBox.innerText = message;
+        document.body.appendChild(alertBox);
+        setTimeout(() => {
+            // Move para cima (esconde)
+            alertBox.style.transform = 'translateY(-100%)'; 
+            alertBox.addEventListener('transitionend', () => alertBox.remove());
+        }, 3000);
+    }
+    
+    // Inicia o aplicativo
+    window.onload = () => {
+        // Garantir que a primeira tela seja exibida ao carregar
+        render(); 
+        console.log("Timer Maromba iniciado. Selecione o tempo para começar.");
+    };
+
+</script>
+
+</body>
+</html>
